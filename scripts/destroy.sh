@@ -12,7 +12,7 @@
 # Antes de remover, marca LAB_STATE=destroyed no GitHub para o pipeline não publicar mais.
 # Preserva recursos compartilhados da conta, como o provedor OIDC do GitHub.
 # Ao final confere por identificador o que restou e retorna erro se algo não foi removido.
-# shellcheck disable=SC2329 # as funções remove_* são chamadas indiretamente por run_step
+# shellcheck disable=SC2317,SC2329 # as funções remove_* são chamadas indiretamente por run_step (0.9 usa SC2317, 0.11 usa SC2329)
 set -Eeuo pipefail
 shopt -s inherit_errexit
 

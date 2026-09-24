@@ -27,10 +27,11 @@ confirmação separada, depois que a responsável tiver usado a aplicação.
 
 ## Pendências
 
-- **Credencial AWS**: o único perfil local (`default`) é o usuário root; os scripts o recusam sem `--allow-root`.
-  A responsável vai criar uma credencial de operação com a policy mínima
+- **Credencial AWS**: o único perfil local (`default`) é o usuário root. Depois do alerta, a responsável
+  decidiu explicitamente (24/09/2026) usar o root neste laboratório, só para o provisionamento e a remoção
+  locais (`--allow-root`); o CI usa sempre a role OIDC. Alternativa não usada: a policy mínima
   [`iam-operador-lab-deploy.json`](iam-operador-lab-deploy.json), que cobre as operações do `deploy.sh` e do
-  `destroy.sh` restritas aos nomes do `lab-deploy`. Recomendação: remover as access keys de root.
+  `destroy.sh` restritas aos nomes do `lab-deploy`. Recomendação: remover as access keys de root ao final.
 
 ## Fatos encontrados no código
 
