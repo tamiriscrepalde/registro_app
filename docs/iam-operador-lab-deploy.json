@@ -1,0 +1,224 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "LeituraSemNivelDeRecurso",
+      "Effect": "Allow",
+      "Action": [
+        "ec2:Describe*",
+        "rds:DescribeDBEngineVersions",
+        "rds:DescribeOrderableDBInstanceOptions",
+        "rds:DescribeDBSnapshots",
+        "rds:DescribeDBInstanceAutomatedBackups",
+        "ecs:CreateCluster",
+        "ecs:RegisterTaskDefinition",
+        "ecs:DeregisterTaskDefinition",
+        "ecs:DescribeTaskDefinition",
+        "ecs:ListTaskDefinitions",
+        "ecs:DeleteTaskDefinitions",
+        "ssm:DescribeParameters",
+        "logs:DescribeLogGroups"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "RedeCriacaoNaRegiao",
+      "Effect": "Allow",
+      "Action": [
+        "ec2:CreateVpc",
+        "ec2:CreateInternetGateway",
+        "ec2:CreateSubnet",
+        "ec2:CreateRouteTable",
+        "ec2:CreateSecurityGroup"
+      ],
+      "Resource": "*",
+      "Condition": { "StringEquals": { "aws:RequestedRegion": "us-east-1" } }
+    },
+    {
+      "Sid": "RedeTagsNaCriacao",
+      "Effect": "Allow",
+      "Action": "ec2:CreateTags",
+      "Resource": "*",
+      "Condition": {
+        "StringEquals": {
+          "ec2:CreateAction": [
+            "CreateVpc",
+            "CreateInternetGateway",
+            "CreateSubnet",
+            "CreateRouteTable",
+            "CreateSecurityGroup"
+          ]
+        }
+      }
+    },
+    {
+      "Sid": "RedeAlteracaoSoDoAmbiente",
+      "Effect": "Allow",
+      "Action": [
+        "ec2:ModifyVpcAttribute",
+        "ec2:AttachInternetGateway",
+        "ec2:DetachInternetGateway",
+        "ec2:CreateRoute",
+        "ec2:AssociateRouteTable",
+        "ec2:AuthorizeSecurityGroupIngress",
+        "ec2:DeleteSubnet",
+        "ec2:DeleteRouteTable",
+        "ec2:DeleteSecurityGroup",
+        "ec2:DeleteInternetGateway",
+        "ec2:DeleteVpc"
+      ],
+      "Resource": "*",
+      "Condition": { "StringEquals": { "ec2:ResourceTag/Environment": "lab-deploy" } }
+    },
+    {
+      "Sid": "Banco",
+      "Effect": "Allow",
+      "Action": [
+        "rds:CreateDBInstance",
+        "rds:DeleteDBInstance",
+        "rds:DescribeDBInstances",
+        "rds:CreateDBSubnetGroup",
+        "rds:DeleteDBSubnetGroup",
+        "rds:DescribeDBSubnetGroups",
+        "rds:AddTagsToResource"
+      ],
+      "Resource": [
+        "arn:aws:rds:us-east-1:083712834563:db:lab-deploy-db",
+        "arn:aws:rds:us-east-1:083712834563:subgrp:lab-deploy-db",
+        "arn:aws:rds:us-east-1:083712834563:og:default*",
+        "arn:aws:rds:us-east-1:083712834563:pg:default*"
+      ]
+    },
+    {
+      "Sid": "Segredos",
+      "Effect": "Allow",
+      "Action": ["ssm:GetParameter", "ssm:PutParameter", "ssm:AddTagsToResource", "ssm:DeleteParameters"],
+      "Resource": "arn:aws:ssm:us-east-1:083712834563:parameter/lab-deploy/*"
+    },
+    {
+      "Sid": "Imagens",
+      "Effect": "Allow",
+      "Action": [
+        "ecr:CreateRepository",
+        "ecr:DescribeRepositories",
+        "ecr:DeleteRepository",
+        "ecr:PutLifecyclePolicy",
+        "ecr:TagResource",
+        "ecr:DescribeImages",
+        "ecr:BatchDeleteImage"
+      ],
+      "Resource": "arn:aws:ecr:us-east-1:083712834563:repository/lab-deploy-api"
+    },
+    {
+      "Sid": "Logs",
+      "Effect": "Allow",
+      "Action": [
+        "logs:CreateLogGroup",
+        "logs:DeleteLogGroup",
+        "logs:PutRetentionPolicy",
+        "logs:TagResource",
+        "logs:TagLogGroup",
+        "logs:GetLogEvents",
+        "logs:FilterLogEvents"
+      ],
+      "Resource": [
+        "arn:aws:logs:us-east-1:083712834563:log-group:/ecs/lab-deploy",
+        "arn:aws:logs:us-east-1:083712834563:log-group:/ecs/lab-deploy:*"
+      ]
+    },
+    {
+      "Sid": "RolesDoAmbiente",
+      "Effect": "Allow",
+      "Action": [
+        "iam:GetRole",
+        "iam:CreateRole",
+        "iam:DeleteRole",
+        "iam:TagRole",
+        "iam:UpdateAssumeRolePolicy",
+        "iam:PutRolePolicy",
+        "iam:DeleteRolePolicy",
+        "iam:ListRolePolicies",
+        "iam:ListAttachedRolePolicies",
+        "iam:DetachRolePolicy"
+      ],
+      "Resource": "arn:aws:iam::083712834563:role/lab-deploy-*"
+    },
+    {
+      "Sid": "SoAPolicyGerenciadaDeExecucaoDoEcs",
+      "Effect": "Allow",
+      "Action": "iam:AttachRolePolicy",
+      "Resource": "arn:aws:iam::083712834563:role/lab-deploy-*",
+      "Condition": {
+        "ArnEquals": { "iam:PolicyARN": "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy" }
+      }
+    },
+    {
+      "Sid": "PassarARoleDeExecucaoAoEcs",
+      "Effect": "Allow",
+      "Action": "iam:PassRole",
+      "Resource": "arn:aws:iam::083712834563:role/lab-deploy-ecs-exec",
+      "Condition": { "StringEquals": { "iam:PassedToService": "ecs-tasks.amazonaws.com" } }
+    },
+    {
+      "Sid": "ProvedorOidcDoGitHub",
+      "Effect": "Allow",
+      "Action": ["iam:GetOpenIDConnectProvider", "iam:CreateOpenIDConnectProvider", "iam:TagOpenIDConnectProvider"],
+      "Resource": "arn:aws:iam::083712834563:oidc-provider/token.actions.githubusercontent.com"
+    },
+    {
+      "Sid": "RolesVinculadasAosServicos",
+      "Effect": "Allow",
+      "Action": "iam:CreateServiceLinkedRole",
+      "Resource": "*",
+      "Condition": { "StringEquals": { "iam:AWSServiceName": ["ecs.amazonaws.com", "rds.amazonaws.com"] } }
+    },
+    {
+      "Sid": "Ecs",
+      "Effect": "Allow",
+      "Action": [
+        "ecs:DescribeClusters",
+        "ecs:DeleteCluster",
+        "ecs:CreateService",
+        "ecs:UpdateService",
+        "ecs:DeleteService",
+        "ecs:DescribeServices",
+        "ecs:RunTask",
+        "ecs:TagResource"
+      ],
+      "Resource": [
+        "arn:aws:ecs:us-east-1:083712834563:cluster/lab-deploy",
+        "arn:aws:ecs:us-east-1:083712834563:service/lab-deploy/lab-deploy-api",
+        "arn:aws:ecs:us-east-1:083712834563:task-definition/lab-deploy-api:*",
+        "arn:aws:ecs:us-east-1:083712834563:task/lab-deploy/*"
+      ]
+    },
+    {
+      "Sid": "TasksDoCluster",
+      "Effect": "Allow",
+      "Action": ["ecs:ListTasks", "ecs:DescribeTasks", "ecs:StopTask"],
+      "Resource": "*",
+      "Condition": { "ArnEquals": { "ecs:cluster": "arn:aws:ecs:us-east-1:083712834563:cluster/lab-deploy" } }
+    },
+    {
+      "Sid": "BucketDoSite",
+      "Effect": "Allow",
+      "Action": [
+        "s3:CreateBucket",
+        "s3:DeleteBucket",
+        "s3:ListBucket",
+        "s3:ListBucketVersions",
+        "s3:PutBucketTagging",
+        "s3:PutBucketPublicAccessBlock",
+        "s3:PutBucketWebsite",
+        "s3:PutBucketPolicy"
+      ],
+      "Resource": "arn:aws:s3:::lab-deploy-site-083712834563"
+    },
+    {
+      "Sid": "ObjetosDoSite",
+      "Effect": "Allow",
+      "Action": ["s3:PutObject", "s3:GetObject", "s3:DeleteObject", "s3:DeleteObjectVersion"],
+      "Resource": "arn:aws:s3:::lab-deploy-site-083712834563/*"
+    }
+  ]
+}

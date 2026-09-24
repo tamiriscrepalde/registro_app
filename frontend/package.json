@@ -1,0 +1,21 @@
+{
+  "name": "registro-frontend",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "lint": "eslint .",
+    "format:check": "prettier --check app.js config.js test eslint.config.js",
+    "test": "node --test test/app.test.js",
+    "build": "rm -rf dist && mkdir dist && cp index.html style.css app.js config.js dist/"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "eslint": "^10.11.0",
+    "globals": "^17.12.0",
+    "jsdom": "^29.1.1",
+    "prettier": "^3.9.9"
+  }
+}

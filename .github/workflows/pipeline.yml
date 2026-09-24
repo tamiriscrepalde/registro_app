@@ -1,0 +1,221 @@
+# Validação em PRs e pushes na main; publicação automática na AWS a cada push na main
+# enquanto o laboratório estiver ativo (variável LAB_STATE=active, definida pelo provisionamento).
+name: CI/CD
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  api:
+    name: API · lint, formatação e testes com PostgreSQL
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: api
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: app
+          POSTGRES_PASSWORD: app
+          POSTGRES_DB: registro_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U app -d registro_test"
+          --health-interval 5s --health-timeout 3s --health-retries 10
+    env:
+      DATABASE_URL: postgres://app:app@localhost:5432/registro_test
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: api/package-lock.json
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run format:check
+      - run: npm test
+      - name: Testes de integração (migrations e persistência)
+        run: npm run test:integration
+
+  frontend:
+    name: Frontend · lint, formatação, testes e build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run format:check
+      - run: npm test
+      - run: npm run build
+      - uses: actions/upload-artifact@v7
+        with:
+          name: frontend-dist
+          path: frontend/dist
+          if-no-files-found: error
+          retention-days: 7
+
+  scripts:
+    name: Scripts · sintaxe, shellcheck e policies IAM
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: bash -n
+        run: for f in scripts/*.sh scripts/tests/*.sh; do bash -n "$f"; done
+      - name: shellcheck
+        run: |
+          shellcheck --version
+          shellcheck -x scripts/*.sh scripts/tests/*.sh
+      - name: Testes dos scripts e das policies geradas
+        run: scripts/tests/run.sh
+
+  image:
+    name: Imagem · build e teste do container
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: app
+          POSTGRES_PASSWORD: app
+          POSTGRES_DB: registro_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U app -d registro_test"
+          --health-interval 5s --health-timeout 3s --health-retries 10
+    env:
+      IMAGE: registro-api:${{ github.sha }}
+      DATABASE_URL: postgres://app:app@localhost:5432/registro_test
+    steps:
+      - uses: actions/checkout@v7
+      - run: docker build -t "$IMAGE" api
+      - name: CA do RDS legível pelo usuário não-root com DB_SSL=true
+        run: |
+          docker run --rm -e DB_SSL=true "$IMAGE" \
+            node -e "require('./src/db'); console.log('CA carregado como', require('os').userInfo().username)"
+      - name: Migrations e API executadas a partir da imagem
+        run: |
+          docker run --rm --network host -e DATABASE_URL "$IMAGE" node src/migrate.js
+          docker run -d --name api --network host -e DATABASE_URL -e JWT_SECRET=ci -e APP_VERSION="$GITHUB_SHA" "$IMAGE"
+          for _ in $(seq 1 30); do curl -fsS localhost:3000/api/health && break; sleep 1; done
+          curl -fsS localhost:3000/api/health | jq -e --arg v "$GITHUB_SHA" '.version == $v'
+          curl -fsS -H 'Content-Type: application/json' -d '{"name":"CI","email":"ci@example.com","password":"segredo1"}' \
+            localhost:3000/api/register | jq -e '.token | length > 0'
+      - name: Logs do container em caso de falha
+        if: failure()
+        run: docker logs api || true
+      - run: docker save "$IMAGE" | gzip > api-image.tar.gz
+      - uses: actions/upload-artifact@v7
+        with:
+          name: api-image
+          path: api-image.tar.gz
+          if-no-files-found: error
+          retention-days: 7
+
+  # Mudanças só de documentação continuam validadas acima, mas dispensam a publicação.
+  changes:
+    name: Decide se há publicação
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    outputs:
+      deploy: ${{ steps.check.outputs.deploy }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - id: check
+        env:
+          BEFORE: ${{ github.event.before }}
+          EVENT: ${{ github.event_name }}
+        run: |
+          deploy=true
+          if [[ $EVENT == push ]] && git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
+            files=$(git diff --name-only "$BEFORE" "$GITHUB_SHA")
+            if [[ -n $files ]] && ! grep -Evq '(\.md$|^docs/)' <<<"$files"; then
+              deploy=false
+              echo "::notice title=Publicação dispensada::Somente documentação alterada; as validações foram executadas."
+            fi
+          fi
+          echo "deploy=$deploy" >> "$GITHUB_OUTPUT"
+
+  deploy:
+    name: Deploy na AWS
+    needs: [api, frontend, scripts, image, changes]
+    if: >-
+      github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+      && vars.LAB_STATE == 'active' && needs.changes.outputs.deploy == 'true'
+    runs-on: ubuntu-latest
+    environment:
+      name: ${{ vars.LAB_ENV }}
+      url: ${{ steps.deploy.outputs.site_url }}
+    concurrency:
+      group: deploy-${{ vars.LAB_ENV }}
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      LAB_ENV: ${{ vars.LAB_ENV }}
+      AWS_REGION: ${{ vars.AWS_REGION }}
+      AWS_ACCOUNT_ID: ${{ vars.AWS_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          name: api-image
+      - uses: actions/download-artifact@v8
+        with:
+          name: frontend-dist
+          path: frontend/dist
+      - uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+      - name: Envia ao ECR a imagem validada neste run
+        run: |
+          registry="$AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com"
+          repo="$registry/$LAB_ENV-api"
+          aws ecr get-login-password | docker login --username AWS --password-stdin "$registry"
+          # Tags imutáveis: numa reexecução do mesmo commit, a imagem já publicada é reutilizada.
+          if aws ecr describe-images --repository-name "$LAB_ENV-api" --image-ids "imageTag=$GITHUB_SHA" >/dev/null 2>&1; then
+            echo "A imagem $GITHUB_SHA já está no ECR; será reutilizada."
+          else
+            gunzip -c api-image.tar.gz | docker load
+            docker tag "registro-api:$GITHUB_SHA" "$repo:$GITHUB_SHA"
+            docker push "$repo:$GITHUB_SHA"
+          fi
+      - name: Migrations, serviço ECS, frontend e verificação funcional
+        id: deploy
+        run: |
+          scripts/deploy.sh --env "$LAB_ENV" --region "$AWS_REGION" --account "$AWS_ACCOUNT_ID" \
+            --image-tag "$GITHUB_SHA" --frontend-dir frontend/dist
+
+  # Depois da destruição (ou antes do primeiro provisionamento) o pipeline só informa; não recria nada.
+  lab-closed:
+    name: Laboratório inativo
+    if: github.event_name != 'pull_request' && vars.LAB_STATE != 'active'
+    runs-on: ubuntu-latest
+    steps:
+      - env:
+          LAB_STATE: ${{ vars.LAB_STATE }}
+        run: |
+          msg="O ambiente do laboratório não está ativo (LAB_STATE=${LAB_STATE:-não definido}). Nenhum recurso foi criado nem atualizado. Um novo provisionamento exige executar scripts/deploy.sh --provision explicitamente."
+          echo "::notice title=Deploy não executado::$msg"
+          echo "### ⏸️ Deploy não executado" >> "$GITHUB_STEP_SUMMARY"
+          echo "$msg" >> "$GITHUB_STEP_SUMMARY"
