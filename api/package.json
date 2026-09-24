@@ -4,12 +4,25 @@
   "main": "src/index.js",
   "scripts": {
     "start": "node src/index.js",
-    "migrate": "node src/migrate.js"
+    "migrate": "node src/migrate.js",
+    "lint": "eslint .",
+    "format:check": "prettier --check src test eslint.config.js",
+    "test": "node --test test/api.test.js",
+    "test:integration": "node --test test/integration.test.js"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",
     "express": "^4.21.2",
     "jsonwebtoken": "^9.0.2",
     "pg": "^8.13.1"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "eslint": "^10.11.0",
+    "globals": "^17.12.0",
+    "prettier": "^3.9.9"
   }
 }

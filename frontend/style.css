@@ -56,4 +56,6 @@ button:hover { filter: brightness(0.95); }
 .message.error { color: #dc2626; }
 .message.success { color: #16a34a; }
 
+.version { margin: 20px 0 0; font-size: 12px; color: #94a3b8; text-align: center; }
+
 .hidden { display: none !important; }
